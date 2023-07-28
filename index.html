@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script type="text/javascript">
+    // This JSON block is generated when you run `split-image-npo2.bash`.
+    const FLOOR_DATA = [
+      { label: 'BF', url: './floors/F0-basement-floor-plan/{z}/{x}-{y}.jpg', maxZoom: 3 },
+      { label: '1F', url: './floors/F1-ground-floor-plan/{z}/{x}-{y}.jpg', maxZoom: 3 },
+      { label: '2F', url: './floors/F2-first-floor-plan/{z}/{x}-{y}.jpg', maxZoom: 3 },
+      { label: '3F', url: './floors/F3-second-floor-plan/{z}/{x}-{y}.jpg', maxZoom: 3 },
+    ];
+    const MAIN_FLOOR = 1;  // Primary (default) floor in the above array.
+    const OPACITY_STEPS = 128;  // Number of notches between floors in slider.
+  </script>
+
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<title>Floorplan Viewer</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+	<style>
+		html, body {
+			height: 100%;
+			margin: 0;
+		}
+		.leaflet-container {
+			width: 100%;
+			height: 100%;
+			position: relative;
+      background-color: #081d08ff;
+		}
+
+    /* Outermost box for the opacity slider */
+    .opacity-slider {
+      position: absolute;
+      top: 25%;
+      left: 20px;
+      display: flex;
+      align-items: center;
+      background-color: white;
+      padding: 12px;
+      border-radius: 5px;
+      z-index: 1000;
+      max-width: 25vw;
+      height: 50vh;
+    }
+
+    /* Rotates our slider  */
+    .slider-positioner {
+      flex: 1; /* Set flex: 1 to take available space within the opacity-slider container */
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      background-color: white;
+      padding: 0;
+      margin-right: 2px;
+      border-radius: 5px;
+      width: 18px;
+      height: 100%;
+    }
+    /* Rotate the slider to be vertical. This is a separate div so that it can
+       be sized in the parent box properly. */
+    .slider-rotator {
+      transform: rotate(90deg);
+      transform-origin: 8px 8px;
+    }
+
+    /* Rotates our slider 180 before we do more complicated transforms.
+       Unlike SVG, HTML CSS cannot aassign a unique origin to each rotate
+       function in series, so we either need a precomputed matrix or a div
+       in a div. I chose the latter. */
+    .vertical-slider {
+      width: 50vh;
+      height: 15px;
+      margin-bottom: 12px; /* Add spacing between the slider and labels */
+      transform: rotate(180deg);
+      transform-origin: center;
+    }
+    
+    /* Flexbox for the labels (floor buttons) next to the slider. */
+    .slider-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      height: 100%;
+    }
+    
+    /* Button-like class used to illustrate that the floors are clickable. */
+    .slider-label {
+      font-family: 'Roboto';
+      font-size: 14px;
+      padding: 0.5em 1em;
+      margin: 2px;
+      border: 0;
+      outline: 0;
+      color: white;
+      background-color: #5e95c2;
+      border-radius: 0.25em;
+      box-shadow: 0 0 8px rgba(0, 0, 0, 0.3 );
+      position: relative;
+      cursor: pointer;
+      max-width: 5vw;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    @media (max-width: 600px) {
+      .slider-label {
+        font-size: 11px; /* Set a smaller font size for smaller screens */
+      }
+    }
+
+    /* Animation for clicking the buttons. This lets users know something should
+       have happened in response to them clicking the botton, in case they fail
+       to notice the floor changing out from under them in their peripheral. */
+    .ripple {
+      border-radius: 50%;
+      background-color: rgba(255, 255, 255, 0.7);
+      position: absolute;
+      transform: scale(0);
+      animation: ripple 0.6s linear;
+      z-index: 1001;
+    }
+    @keyframes ripple {
+      to { transform: scale(3); opacity: 0; }
+    }
+    
+    
+    /* Styling for the button that hides the floor picker (mostly for mobile).
+    */
+    .slider-hider {
+      position: absolute;
+      top: -56px;
+      left: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 5px;
+      background-color: white;
+      text-align: center;
+      font: bold 22px 'Lucida Console', Monaco, monospace;
+      line-height: 40px;
+      cursor: pointer;
+    }
+
+    /* Added to the floor picker to hide it. */
+    .opacity-slider.leave {
+      animation: slideOutLeft 0.5s ease forwards;
+    }
+    /* Added to the hide button to keep it on-screen as its parent leaves. */
+    .slider-hider.leave {
+      animation: counterSlideOutLeft 0.5s ease forwards;
+    }
+
+    /* Added to the floor picker to bring it back into view. */
+    .opacity-slider.enter {
+      animation: slideInLeft 0.5s ease forwards;
+    }
+    /* Added to the hide button to restore its original position gradually. */
+    .slider-hider.enter {
+      animation: counterSlideInLeft 0.5s ease forwards;
+    }
+
+    /* CSS animation keyframes for sliding in/out on the left. */
+    @keyframes slideOutLeft {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(-150px); }
+    }
+    @keyframes counterSlideOutLeft {
+      0%   { transform: translateX(0); }
+      100% { transform: translateX(120px); }
+    }
+    @keyframes slideInLeft {
+      0%   { transform: translateX(-150px); }
+      100% { transform: translateX(0); }
+    }
+    @keyframes counterSlideInLeft {
+      0%   { transform: translateX(120px); }
+      100% { transform: translateX(0); }
+    }
+	</style>
+</head>
+<body>
+  <div id="viewer" style="width: 100%; height: 100%;"></div>
+
+  <!-- Add a floor picker on the left side of the screen -->
+  <div class="opacity-slider" id="sliderContainer">
+    <div class="slider-hider" id="sliderHider">&lt;</div>
+    <div class="slider-positioner"><div class="slider-rotator">
+      <input class="vertical-slider" type="range" min="0" max="0" step="0" value="0" id="opacityRange" />
+    </div></div>
+    <div class="slider-labels" id="sliderLabels">
+      <!-- more divs are inserted here using JavaScript and should appear next to the slider with space-between. -->
+    </div>
+  </div>
+
+  <script>
+    const MAP_WIDTH = 180;
+    const MAP_HEIGHT = 180;
+    const MAP_BORDER = 45;
+    var viewer = L.map('viewer', {
+      crs: L.CRS.Simple
+    });
+    viewer.setView([-MAP_HEIGHT/2, MAP_WIDTH/2], 4);
+    viewer.setMaxBounds([[MAP_BORDER, -MAP_BORDER], [-MAP_HEIGHT-MAP_BORDER, MAP_WIDTH+MAP_BORDER]]);
+
+    const slider = document.getElementById('opacityRange');
+    function handleLabelClick(index) {
+      slider.value = index;
+      var event = new Event('input', { bubbles: true });
+      slider.dispatchEvent(event);
+    }
+
+    function createRipple(e) {
+      for (let child of this.getElementsByClassName('ripple')) {
+        this.removeChild(child);
+      }
+
+      const circle = document.createElement('div');
+      this.appendChild(circle);
+
+      const d = Math.max(this.clientWidth, this.clientHeight);
+      const rect = this.getBoundingClientRect();
+      circle.style.width = circle.style.height = d + 'px';
+      circle.style.left = e.clientX - rect.left - d / 2 + 'px';
+      circle.style.top =  e.clientY - rect.top  - d / 2 + 'px';
+      circle.classList.add('ripple');
+    }
+    
+    function sqr(x) { return x * x; }
+    function clamp(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function erp(x) {
+      if (OPACITY_STEPS < 1) return 0;
+      const margin = .0625 - 0.625 / OPACITY_STEPS;
+      const sngl = 1 + margin, dbl = sngl + margin;
+      return clamp(sngl - dbl * sqr(Math.cos(x * Math.PI / 2)));
+    }
+
+    divs = [];
+    for (let i = 0; i < FLOOR_DATA.length; ++i) {
+      const floor = FLOOR_DATA[i];
+      const tiles = L.tileLayer(floor.url, {
+          maxZoom: floor.maxZoom,
+          tileSize: 256,
+          noWrap: true,
+          bounds: [[0, 0], [-MAP_HEIGHT, MAP_WIDTH]]
+        }).addTo(viewer);
+      floor.tiles = tiles;
+      const div = document.createElement('div');
+      div.innerHTML = floor.label;
+      div.className = "slider-label";
+      div.addEventListener('click', handleLabelClick.bind(div, i));
+      div.addEventListener('click', createRipple);
+      divs.push(div);
+    }
+    const labels = document.getElementById('sliderLabels');
+    for (let i = divs.length; i > 0; labels.appendChild(divs[--i]));
+
+    // Add the vertical slider overlay
+    slider.oninput = function() {
+      const lower_floor = Math.floor(this.value);
+      const upper_floor = Math.ceil(this.value);
+      const frac = erp(this.value - Math.trunc(this.value));
+      for (let i = 0; i < lower_floor; ++i)
+        FLOOR_DATA[i].tiles.setOpacity(0);
+      for (let i = upper_floor; i < FLOOR_DATA.length; ++i)
+        FLOOR_DATA[i].tiles.setOpacity(0);
+      FLOOR_DATA[lower_floor].tiles.setOpacity(1);
+      if (lower_floor != upper_floor) {
+        FLOOR_DATA[upper_floor].tiles.setOpacity(frac);
+      }
+    };
+    slider.max = FLOOR_DATA.length - 1;
+    slider.value = MAIN_FLOOR;
+    slider.step = OPACITY_STEPS > 0 ? 1 / (OPACITY_STEPS + 1) : 1;
+    slider.oninput();
+    
+    // Configure sliderHider button
+    const sliderHider = document.getElementById('sliderHider');
+    const sliderContainer = document.getElementById('sliderContainer');
+    function toggleSlider() {
+
+      // Check if the slider container has the 'leave' class
+      const isLeaving = sliderContainer.classList.contains('leave');
+      console.log(isLeaving);
+
+      if (isLeaving) {
+        // Remove the 'leave' class and add the 'enter' class to slide the container back into view
+        sliderContainer.classList.remove('leave');
+        sliderHider.classList.remove('leave');
+        sliderContainer.classList.add('enter');
+        sliderHider.classList.add('enter');
+        sliderHider.innerHTML = "&lt;";
+      } else {
+        // Remove the 'enter' class and add the 'leave' class to slide the container out of view
+        sliderContainer.classList.remove('enter');
+        sliderHider.classList.remove('enter');
+        sliderContainer.classList.add('leave');
+        sliderHider.classList.add('leave');
+        sliderHider.innerHTML = "&gt;";
+      }
+    }
+
+    sliderHider.addEventListener('click', toggleSlider);
+  </script>
+</body>
+</html>
